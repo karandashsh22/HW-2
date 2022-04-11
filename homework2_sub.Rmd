@@ -1,0 +1,140 @@
+---
+title: "PSTAT-131-Homework-2"
+author: "Hector He"
+date: "4/8/2022"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(tidyverse)
+library(tidymodels)
+library(dbplyr)
+library(readr)
+library(yardstick)
+library(magrittr)
+```
+
+```{r}
+abalone <- read_csv('~/Desktop/Spring 2022/PSTAT 131/homework/homework-2/data/abalone.csv')
+```
+
+Q1
+```{r}
+abalone <- mutate(abalone, age = rings + 1.5)
+```
+
+```{r}
+head(abalone)
+```
+
+```{r}
+abalone %>%
+  ggplot(aes(x = age)) + geom_bar()
+```
+From the graph, we can see the age of abalones is roughly a right-skewed distribution, with most of abalones aged between 9 and 13 years old and a few outliers with an age greater than 25
+
+
+Q2
+```{r}
+set.seed(2000)
+
+abalone_split <- initial_split(abalone, prop = 0.7, strata = rings)
+abalone_test <- testing(abalone_split)
+abalone_train <- training(abalone_split)
+```
+
+```{r}
+head(abalone_train)
+```
+
+
+Q3
+```{r}
+abalone_recipe <- recipe(age ~ type + longest_shell + diameter + height + whole_weight + shucked_weight + viscera_weight + shell_weight, data = abalone_train) %>% 
+  step_center() %>% 
+  step_scale() %>%
+  step_dummy(all_nominal_predictors()) %>%
+  step_interact(terms = ~ longest_shell:diameter) %>% 
+  step_interact(terms = ~ shucked_weight:shell_weight) %>% 
+  step_interact(terms = ~ starts_with(c('type_I', 'type_M')):shucked_weight)
+  
+```
+rings is not selected because here we try to find what other factors can be used to determine the age of abalones, but conventionally rings can be directly used to determine the age
+
+
+Q4
+```{r}
+lm_model <- linear_reg() %>% 
+  set_engine('lm')
+```
+
+
+Q5
+```{r}
+lm_wflow <- workflow() %>% 
+  add_model(lm_model) %>% 
+  add_recipe(abalone_recipe)
+```
+
+
+Q6
+```{r}
+lm_fit <- fit(lm_wflow, abalone_train)
+```
+
+```{r}
+lm_fit %>% 
+  extract_fit_parsnip() %>% 
+  tidy()
+```
+
+```{r}
+new_observations <-  data.frame(type = 'F', longest_shell = 0.50, diameter = 0.10, height = 0.30, whole_weight = 4, shucked_weight = 1, viscera_weight = 2, shell_weight = 1)
+```
+
+```{r}
+predict(lm_fit, new_data = new_observations)
+```
+such an abalone is estimated to be around 25-26 years old, it is not so huge in terms of its size, but it is massive in terms of its weight
+
+
+Q7
+```{r}
+abalone_train_pre <- predict(lm_fit, new_data = abalone_train %>% select(-age))
+head(abalone_train_pre)
+```
+
+
+```{r}
+abalone_train_pre <- bind_cols(abalone_train_pre, abalone_train %>% select(age))
+head(abalone_train_pre)
+```
+
+```{r}
+rmse(abalone_train_pre, truth = age, estimate = .pred)
+```
+
+```{r}
+abalone_metrics <- metric_set(rmse, rsq, mae)
+abalone_metrics(abalone_train_pre, truth = age, 
+                estimate = .pred)
+```
+large rmse with low R^2, less variance of age is explained by other predictors than rings
+
+
+```{r}
+abalone_train_pre %>% 
+  ggplot(aes(x = .pred, y = age)) +
+  geom_point(alpha = 0.2) +
+  geom_abline(lty = 2) + 
+  theme_bw() +
+  coord_obs_pred()
+```
+graph created from the code introduced in Lab-2
